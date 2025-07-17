@@ -17,16 +17,14 @@ struct Vector3 {
 
 };
 
-struct Sphere {
-	Vector3 center;
-	float radius;
+struct Segment {
+	Vector3 start;
+	Vector3 end;
 };
 
-
-struct  Plane
+struct Triangle
 {
-	Vector3 normal;
-	float distance;
+	Vector3 vertices[3];
 };
 
 
@@ -159,35 +157,8 @@ void DrawGrid(const Matrix4x4& viewProjectionMatrix, const Matrix4x4& viewportMa
 	}
 }
 
-void DrawSphere(const Sphere& sphere, const Matrix4x4& viewProjectionMatrix, const Matrix4x4& viewportMatrix, uint32_t color) {
-	const uint32_t kSubdivision = 16;
-	const float pi = 3.141592f;
-	const float kLatEvery = pi / kSubdivision;
-	const float kLonEvery = 2 * pi / kSubdivision;
 
-	for (uint32_t lat = 0; lat < kSubdivision; ++lat) {
-		float latA = -pi / 2.0f + lat * kLatEvery;
-		float latB = latA + kLatEvery;
-		for (uint32_t lon = 0; lon < kSubdivision; ++lon) {
-			float lonA = lon * kLonEvery;
-			float lonB = lonA + kLonEvery;
 
-			Vector3 a{ sphere.radius * cosf(latA) * cosf(lonA) + sphere.center.x, sphere.radius * sinf(latA) + sphere.center.y, sphere.radius * cosf(latA) * sinf(lonA) + sphere.center.z };
-			Vector3 b{ sphere.radius * cosf(latB) * cosf(lonA) + sphere.center.x, sphere.radius * sinf(latB) + sphere.center.y, sphere.radius * cosf(latB) * sinf(lonA) + sphere.center.z };
-			Vector3 c{ sphere.radius * cosf(latA) * cosf(lonB) + sphere.center.x, sphere.radius * sinf(latA) + sphere.center.y, sphere.radius * cosf(latA) * sinf(lonB) + sphere.center.z };
-
-			a = Transform(a, viewProjectionMatrix);
-			a = Transform(a, viewportMatrix);
-			b = Transform(b, viewProjectionMatrix);
-			b = Transform(b, viewportMatrix);
-			c = Transform(c, viewProjectionMatrix);
-			c = Transform(c, viewportMatrix);
-
-			Novice::DrawLine((int)a.x, (int)a.y, (int)b.x, (int)b.y, color);
-			Novice::DrawLine((int)a.x, (int)a.y, (int)c.x, (int)c.y, color);
-		}
-	}
-}
 
 Vector3 Cross(const Vector3& v1, const Vector3& v2) {
 	Vector3 result{};
@@ -202,50 +173,68 @@ Vector3 Cross(const Vector3& v1, const Vector3& v2) {
 }
 
 
-bool IsCollision(const Sphere& sphere, const Plane& plane) {
-	float distanceSquared = Dot(plane.normal, sphere.center) - plane.distance;
-	return std::abs(distanceSquared) <= sphere.radius;
-}
+
 Vector3 Perpendicular(const Vector3& vector) {
 	if (vector.x != 0.0f || vector.y != 0.0f) {
 		return{ -vector.y,vector.x,0.0f };
 	}
 	return{ 0.0f,-vector.z,vector.y };
 }
-void DrawPlane(const Plane& plane, const Matrix4x4& viewProjectionMatrix, const Matrix4x4& viewportMatrix, uint32_t color) {
-	Vector3 center = {
-		plane.normal.x * plane.distance,
-		plane.normal.y * plane.distance,
-		plane.normal.z * plane.distance
+
+// ベクトルの減算
+Vector3 Subtract(const Vector3& a, const Vector3& b) {
+	return { a.x - b.x, a.y - b.y, a.z - b.z };
+}
+
+// 三角形と線分の交差判定（簡易版）
+bool IsSegmentTriangleIntersect(const Segment& segment, const Triangle& triangle, Vector3* outIntersection = nullptr) {
+	Vector3 v0 = triangle.vertices[0];
+	Vector3 v1 = triangle.vertices[1];
+	Vector3 v2 = triangle.vertices[2];
+
+	// 三角形の法線を計算
+	Vector3 edge1 = Subtract(v1, v0);
+	Vector3 edge2 = Subtract(v2, v0);
+	Vector3 normal = Normalize(Cross(edge1, edge2));
+
+	// 線分のベクトルと方向
+	Vector3 dir = Subtract(segment.end, segment.start);
+	float dotND = Dot(normal, dir);
+	if (std::abs(dotND) < 1e-5f) return false; // 平面と平行
+
+	// 線分と平面の交点tを求める
+	float t = (Dot(normal, v0) - Dot(normal, segment.start)) / dotND;
+	if (t < 0.0f || t > 1.0f) return false; // 線分の範囲外
+
+	// 交点を求める
+	Vector3 intersection = {
+		segment.start.x + dir.x * t,
+		segment.start.y + dir.y * t,
+		segment.start.z + dir.z * t,
 	};
-	Vector3 perpendiculars[4];
-	perpendiculars[0] = Normalize(Perpendicular(plane.normal));
-	perpendiculars[1] = { -perpendiculars[0].x,-perpendiculars[0].y,-perpendiculars[0].z };
-	perpendiculars[2] = Cross(plane.normal, perpendiculars[0]);
-	perpendiculars[3] = { -perpendiculars[2].x, -perpendiculars[2].y,-perpendiculars[2].z };
 
-	Vector3 points[4];
-	for (int32_t index = 0; index < 4; ++index) {
-		Vector3 extend = {
-		perpendiculars[index].x * 2.0f,
-		perpendiculars[index].y * 2.0f,
-		perpendiculars[index].z * 2.0f
-		};
-		Vector3 point = Add(center, extend);
-		points[index] = Transform(Transform(point, viewProjectionMatrix), viewportMatrix);
+	// バリューを barycentric 座標で判定（面積法）
+	Vector3 v0v1 = Subtract(v1, v0);
+	Vector3 v0v2 = Subtract(v2, v0);
+	Vector3 v0p = Subtract(intersection, v0);
+
+	float d00 = Dot(v0v1, v0v1);
+	float d01 = Dot(v0v1, v0v2);
+	float d11 = Dot(v0v2, v0v2);
+	float d20 = Dot(v0p, v0v1);
+	float d21 = Dot(v0p, v0v2);
+	float denom = d00 * d11 - d01 * d01;
+
+	float v = (d11 * d20 - d01 * d21) / denom;
+	float w = (d00 * d21 - d01 * d20) / denom;
+	float u = 1.0f - v - w;
+
+	if (u >= 0 && v >= 0 && w >= 0) {
+		if (outIntersection) *outIntersection = intersection;
+		return true;
 	}
-	//0<右上　1<左上 2<左下　3<右下 
-	Novice::DrawLine(static_cast<int>(points[0].x), static_cast<int>(points[0].y),
-		static_cast<int>(points[3].x), static_cast<int>(points[3].y), color); // 右上
 
-	Novice::DrawLine(static_cast<int>(points[3].x), static_cast<int>(points[3].y),
-		static_cast<int>(points[1].x), static_cast<int>(points[1].y), color); // 左上
-
-	Novice::DrawLine(static_cast<int>(points[1].x), static_cast<int>(points[1].y),
-		static_cast<int>(points[2].x), static_cast<int>(points[2].y), color); // 左下
-
-	Novice::DrawLine(static_cast<int>(points[2].x), static_cast<int>(points[2].y),
-		static_cast<int>(points[0].x), static_cast<int>(points[0].y), color); // 右下
+	return false;
 }
 
 // Windowsアプリでのエントリーポイント(main関数
@@ -260,15 +249,19 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 
 	Vector3 cameraTranslate{ 0.0f, 1.9f, -6.49f };
 	Vector3 cameraRotate{ 0.26f, 0.0f, 0.0f };
-	Sphere sphere{
-		{0.0f, 0.0f, 0.0f},
-		0.5f
+
+	Segment segment = {
+	{0.0f, 0.0f, 0.0f},  // 始点
+	{0.0f, 1.0f, 0.0f}   // 終点
 	};
 
-	Plane plane = {
-		{0.0f,1.0f,0.0f },
-		1.0f
+	Triangle triangle = {
+	Vector3{ -1.0f, 0.0f, 1.0f },
+	Vector3{ 1.0f, 0.0f, 1.0f },
+	Vector3{ 0.0f, 0.0f, -1.0f }
 	};
+
+	Vector3 intersection{};
 
 
 
@@ -298,13 +291,16 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 		ImGui::DragFloat3("CameraTranslate", &cameraTranslate.x, 0.01f);
 		ImGui::DragFloat3("CameraRotate", &cameraRotate.x, 0.01f);
 
+		ImGui::DragFloat3("Segment Start", &segment.start.x, 0.01f);
+		ImGui::DragFloat3("Segment End", &segment.end.x, 0.01f);
 
-		ImGui::DragFloat3("SphereCenter", &sphere.center.x, 0.02f);
-		ImGui::DragFloat("SphereRadius", &sphere.radius, 0.01f);
-		ImGui::DragFloat3("Plane.Normal", &plane.normal.x, 0.01f);
-		plane.normal = Normalize(plane.normal);
+		ImGui::DragFloat3("Triangle V0", &triangle.vertices[0].x, 0.01f);
+		ImGui::DragFloat3("Triangle V1", &triangle.vertices[1].x, 0.01f);
+		ImGui::DragFloat3("Triangle V2", &triangle.vertices[2].x, 0.01f);
 
 		ImGui::End();
+
+		bool hit = IsSegmentTriangleIntersect(segment, triangle, &intersection);
 
 		///
 		/// ↑更新処理ここまで
@@ -314,14 +310,37 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 		/// ↓描画処理ここから
 		///
 
+
+
+		Vector3 start = Transform(Transform(segment.start, viewProjectionMatrix), viewportMatrix);
+		Vector3 end = Transform(Transform(Add(segment.start, segment.end), viewProjectionMatrix), viewportMatrix);
+
+		// 衝突していたら色を赤に、していなければ白に
+		uint32_t segmentColor = hit ? 0xFF0000FF : 0xFFFFFFFF;
+
+		Novice::DrawLine((int)start.x, (int)start.y, (int)end.x, (int)end.y, segmentColor);
+
+
+		// 三角形を描画
+		for (int i = 0; i < 3; ++i) {
+			Vector3 p0 = Transform(Transform(triangle.vertices[i], viewProjectionMatrix), viewportMatrix);
+			Vector3 p1 = Transform(Transform(triangle.vertices[(i + 1) % 3], viewProjectionMatrix), viewportMatrix);
+			Novice::DrawLine((int)p0.x, (int)p0.y, (int)p1.x, (int)p1.y, WHITE);
+		}
+
+		//// 交差点を表示
+		//if (hit) {
+		//	Vector3 screenPos = Transform(Transform(intersection, viewProjectionMatrix), viewportMatrix);
+		//	Novice::DrawBox((int)screenPos.x - 4, (int)screenPos.y - 4, 8, 8, 0.0f, 0x00FF00FF, kFillModeSolid);
+		//}
+
 		DrawGrid(viewProjectionMatrix, viewportMatrix);
-		// 当たり判定と色変更
-		bool isHit = IsCollision(sphere, plane);
-		uint32_t sphereColor = isHit ? 0xFF0000FF : 0x000000FF;
 
-		DrawSphere(sphere, viewProjectionMatrix, viewportMatrix, sphereColor);
 
-		DrawPlane(plane, viewProjectionMatrix, viewportMatrix, WHITE);
+
+
+
+
 
 		///
 		/// ↑描画処理ここまで
