@@ -29,7 +29,10 @@ struct AABB {
 	Vector3 max;
 };
 
-
+struct Sphere {
+	Vector3 center;
+	float radius;
+};
 
 float Dot(const Vector3& a, const Vector3& b) { return a.x * b.x + a.y * b.y + a.z * b.z; }
 
@@ -190,6 +193,31 @@ void DrawAABB(AABB& box, const Matrix4x4& vpMatrix, const Matrix4x4& viewport, u
 	}
 }
 
+void DrawSphereXY(const Sphere& sphere, const Matrix4x4& vp, const Matrix4x4& viewport, uint32_t color) {
+	const int kSegments = 36;
+	const float kPI = 3.141592f;
+	for (int i = 0; i < kSegments; ++i) {
+		float theta1 = (float)i / kSegments * 2.0f * kPI;
+		float theta2 = (float)(i + 1) / kSegments * 2.0f * kPI;
+		Vector3 p1 = { sphere.center.x + cosf(theta1) * sphere.radius, sphere.center.y + sinf(theta1) * sphere.radius, sphere.center.z };
+		Vector3 p2 = { sphere.center.x + cosf(theta2) * sphere.radius, sphere.center.y + sinf(theta2) * sphere.radius, sphere.center.z };
+
+		p1 = Transform(p1, vp);
+		p1 = Transform(p1, viewport);
+		p2 = Transform(p2, vp);
+		p2 = Transform(p2, viewport);
+		Novice::DrawLine((int)p1.x, (int)p1.y, (int)p2.x, (int)p2.y, color);
+	}
+}
+
+
+
+float Clamp(float value, float min, float max) {
+	if (value < min) return min;
+	if (value > max) return max;
+	return value;
+}
+
 
 Vector3 Cross(const Vector3& v1, const Vector3& v2) {
 	Vector3 result{};
@@ -217,13 +245,17 @@ Vector3 Subtract(const Vector3& a, const Vector3& b) {
 	return { a.x - b.x, a.y - b.y, a.z - b.z };
 }
 
-// 衝突判定関数（true = 当たっている）
-bool IsAABBIntersect(AABB* a, AABB* b) {
-	return !(a->max.x < b->min.x || a->min.x > b->max.x ||
-		a->max.y < b->min.y || a->min.y > b->max.y ||
-		a->max.z < b->min.z || a->min.z > b->max.z);
-}
+bool IsAABBvsSphere(const AABB* box, const Sphere* sphere) {
+	Vector3 closest{};
+	closest.x = Clamp(sphere->center.x, box->min.x, box->max.x);
+	closest.y = Clamp(sphere->center.y, box->min.y, box->max.y);
+	closest.z = Clamp(sphere->center.z, box->min.z, box->max.z);
 
+	Vector3 diff = Subtract(sphere->center, closest);
+	float distanceSq = Dot(diff, diff);
+
+	return distanceSq <= (sphere->radius * sphere->radius);
+}
 
 // Windowsアプリでのエントリーポイント(main関数
 int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
@@ -245,7 +277,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 
 	AABB box1 = { {-0.5f, 0.0f, -0.5f}, {0.5f, 1.0f, 0.5f} };
 	AABB box2 = { {0.0f, 0.5f, 0.0f}, {1.0f, 1.5f, 1.0f} };
-
+	Sphere sphere = { {0.5f, 0.5f, 0.5f}, 0.3f };
 
 
 
@@ -281,10 +313,16 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 		ImGui::DragFloat3("Segment End", &segment.end.x, 0.01f);
 
 		// ImGui上で表示
+
+		//AABB
 		ImGui::DragFloat3("Box1 Min", &box1.min.x, 0.01f);
 		ImGui::DragFloat3("Box1 Max", &box1.max.x, 0.01f);
 		ImGui::DragFloat3("Box2 Min", &box2.min.x, 0.01f);
 		ImGui::DragFloat3("Box2 Max", &box2.max.x, 0.01f);
+
+		//Sphere
+		ImGui::DragFloat3("Sphere Center", &sphere.center.x, 0.01f);
+		ImGui::DragFloat("Sphere Radius", &sphere.radius, 0.01f, 0.01f, 10.0f);
 
 		ImGui::End();
 
@@ -299,13 +337,13 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 		///
 
 		// 衝突判定
-		bool hit = IsAABBIntersect(&box1, &box2);
+		bool hit = IsAABBvsSphere(&box1, &sphere);
 
 
 		DrawGrid(viewProjectionMatrix, viewportMatrix);
 		// 描画
 		DrawAABB(box1, viewProjectionMatrix, viewportMatrix, hit ? 0xFF0000FF : 0x00FF00FF);
-		DrawAABB(box2, viewProjectionMatrix, viewportMatrix, hit ? 0xFF0000FF : 0x0000FFFF);
+		DrawSphereXY(sphere, viewProjectionMatrix, viewportMatrix, hit ? 0xFF0000FF : 0x0000FFFF);
 
 
 
