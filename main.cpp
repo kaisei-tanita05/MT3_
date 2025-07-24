@@ -2,6 +2,8 @@
 
 #include <cmath>
 #include <imgui.h>
+#include <stdio.h>
+#include <stdbool.h>
 
 const char kWindowTitle[] = "LE2C_20_タニタ_カイセイ";
 
@@ -22,9 +24,9 @@ struct Segment {
 	Vector3 end;
 };
 
-struct Triangle
-{
-	Vector3 vertices[3];
+struct AABB {
+	Vector3 min;
+	Vector3 max;
 };
 
 
@@ -157,7 +159,36 @@ void DrawGrid(const Matrix4x4& viewProjectionMatrix, const Matrix4x4& viewportMa
 	}
 }
 
+// AABBの描画（線で囲む）
+void DrawAABB(AABB& box, const Matrix4x4& vpMatrix, const Matrix4x4& viewport, uint32_t color) {
+	Vector3 corners[8] = {
+		{box.min.x, box.min.y, box.min.z},
+		{box.max.x, box.min.y, box.min.z},
+		{box.min.x, box.max.y, box.min.z},
+		{box.max.x, box.max.y, box.min.z},
+		{box.min.x, box.min.y, box.max.z},
+		{box.max.x, box.min.y, box.max.z},
+		{box.min.x, box.max.y, box.max.z},
+		{box.max.x, box.max.y, box.max.z},
+	};
 
+	for (int i = 0; i < 8; ++i) {
+		corners[i] = Transform(corners[i], vpMatrix);
+		corners[i] = Transform(corners[i], viewport);
+	}
+
+	// 辺を線で描画
+	int edges[12][2] = {
+		{0,1},{1,3},{3,2},{2,0},
+		{4,5},{5,7},{7,6},{6,4},
+		{0,4},{1,5},{2,6},{3,7}
+	};
+
+	for (int i = 0; i < 12; ++i) {
+		Novice::DrawLine((int)corners[edges[i][0]].x, (int)corners[edges[i][0]].y,
+			(int)corners[edges[i][1]].x, (int)corners[edges[i][1]].y, color);
+	}
+}
 
 
 Vector3 Cross(const Vector3& v1, const Vector3& v2) {
@@ -186,56 +217,13 @@ Vector3 Subtract(const Vector3& a, const Vector3& b) {
 	return { a.x - b.x, a.y - b.y, a.z - b.z };
 }
 
-// 三角形と線分の交差判定（簡易版）
-bool IsSegmentTriangleIntersect(const Segment& segment, const Triangle& triangle, Vector3* outIntersection = nullptr) {
-	Vector3 v0 = triangle.vertices[0];
-	Vector3 v1 = triangle.vertices[1];
-	Vector3 v2 = triangle.vertices[2];
-
-	// 三角形の法線を計算
-	Vector3 edge1 = Subtract(v1, v0);
-	Vector3 edge2 = Subtract(v2, v0);
-	Vector3 normal = Normalize(Cross(edge1, edge2));
-
-	// 線分のベクトルと方向
-	Vector3 dir = Subtract(segment.end, segment.start);
-	float dotND = Dot(normal, dir);
-	if (std::abs(dotND) < 1e-5f) return false; // 平面と平行
-
-	// 線分と平面の交点tを求める
-	float t = (Dot(normal, v0) - Dot(normal, segment.start)) / dotND;
-	if (t < 0.0f || t > 1.0f) return false; // 線分の範囲外
-
-	// 交点を求める
-	Vector3 intersection = {
-		segment.start.x + dir.x * t,
-		segment.start.y + dir.y * t,
-		segment.start.z + dir.z * t,
-	};
-
-	// バリューを barycentric 座標で判定（面積法）
-	Vector3 v0v1 = Subtract(v1, v0);
-	Vector3 v0v2 = Subtract(v2, v0);
-	Vector3 v0p = Subtract(intersection, v0);
-
-	float d00 = Dot(v0v1, v0v1);
-	float d01 = Dot(v0v1, v0v2);
-	float d11 = Dot(v0v2, v0v2);
-	float d20 = Dot(v0p, v0v1);
-	float d21 = Dot(v0p, v0v2);
-	float denom = d00 * d11 - d01 * d01;
-
-	float v = (d11 * d20 - d01 * d21) / denom;
-	float w = (d00 * d21 - d01 * d20) / denom;
-	float u = 1.0f - v - w;
-
-	if (u >= 0 && v >= 0 && w >= 0) {
-		if (outIntersection) *outIntersection = intersection;
-		return true;
-	}
-
-	return false;
+// 衝突判定関数（true = 当たっている）
+bool IsAABBIntersect(AABB* a, AABB* b) {
+	return !(a->max.x < b->min.x || a->min.x > b->max.x ||
+		a->max.y < b->min.y || a->min.y > b->max.y ||
+		a->max.z < b->min.z || a->min.z > b->max.z);
 }
+
 
 // Windowsアプリでのエントリーポイント(main関数
 int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
@@ -255,13 +243,11 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 	{0.0f, 1.0f, 0.0f}   // 終点
 	};
 
-	Triangle triangle = {
-	Vector3{ -1.0f, 0.0f, 1.0f },
-	Vector3{ 1.0f, 0.0f, 1.0f },
-	Vector3{ 0.0f, 0.0f, -1.0f }
-	};
+	AABB box1 = { {-0.5f, 0.0f, -0.5f}, {0.5f, 1.0f, 0.5f} };
+	AABB box2 = { {0.0f, 0.5f, 0.0f}, {1.0f, 1.5f, 1.0f} };
 
-	Vector3 intersection{};
+
+
 
 
 
@@ -294,13 +280,15 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 		ImGui::DragFloat3("Segment Start", &segment.start.x, 0.01f);
 		ImGui::DragFloat3("Segment End", &segment.end.x, 0.01f);
 
-		ImGui::DragFloat3("Triangle V0", &triangle.vertices[0].x, 0.01f);
-		ImGui::DragFloat3("Triangle V1", &triangle.vertices[1].x, 0.01f);
-		ImGui::DragFloat3("Triangle V2", &triangle.vertices[2].x, 0.01f);
+		// ImGui上で表示
+		ImGui::DragFloat3("Box1 Min", &box1.min.x, 0.01f);
+		ImGui::DragFloat3("Box1 Max", &box1.max.x, 0.01f);
+		ImGui::DragFloat3("Box2 Min", &box2.min.x, 0.01f);
+		ImGui::DragFloat3("Box2 Max", &box2.max.x, 0.01f);
 
 		ImGui::End();
 
-		bool hit = IsSegmentTriangleIntersect(segment, triangle, &intersection);
+
 
 		///
 		/// ↑更新処理ここまで
@@ -310,32 +298,14 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 		/// ↓描画処理ここから
 		///
 
+		// 衝突判定
+		bool hit = IsAABBIntersect(&box1, &box2);
 
-
-		Vector3 start = Transform(Transform(segment.start, viewProjectionMatrix), viewportMatrix);
-		Vector3 end = Transform(Transform(Add(segment.start, segment.end), viewProjectionMatrix), viewportMatrix);
-
-		// 衝突していたら色を赤に、していなければ白に
-		uint32_t segmentColor = hit ? 0xFF0000FF : 0xFFFFFFFF;
-
-		Novice::DrawLine((int)start.x, (int)start.y, (int)end.x, (int)end.y, segmentColor);
-
-
-		// 三角形を描画
-		for (int i = 0; i < 3; ++i) {
-			Vector3 p0 = Transform(Transform(triangle.vertices[i], viewProjectionMatrix), viewportMatrix);
-			Vector3 p1 = Transform(Transform(triangle.vertices[(i + 1) % 3], viewProjectionMatrix), viewportMatrix);
-			Novice::DrawLine((int)p0.x, (int)p0.y, (int)p1.x, (int)p1.y, WHITE);
-		}
-
-		//// 交差点を表示
-		//if (hit) {
-		//	Vector3 screenPos = Transform(Transform(intersection, viewProjectionMatrix), viewportMatrix);
-		//	Novice::DrawBox((int)screenPos.x - 4, (int)screenPos.y - 4, 8, 8, 0.0f, 0x00FF00FF, kFillModeSolid);
-		//}
 
 		DrawGrid(viewProjectionMatrix, viewportMatrix);
-
+		// 描画
+		DrawAABB(box1, viewProjectionMatrix, viewportMatrix, hit ? 0xFF0000FF : 0x00FF00FF);
+		DrawAABB(box2, viewProjectionMatrix, viewportMatrix, hit ? 0xFF0000FF : 0x0000FFFF);
 
 
 
