@@ -1,9 +1,11 @@
 #include <Novice.h>
-
+#include <cassert>
 #include <cmath>
 #include <imgui.h>
 #include <stdio.h>
 #include <stdbool.h>
+#include <iostream>
+#include <algorithm>
 
 const char kWindowTitle[] = "LE2C_20_タニタ_カイセイ";
 
@@ -17,6 +19,11 @@ struct Vector3 {
 	float z;
 
 
+};
+
+struct Vector2 {
+	float x;
+	float y;
 };
 
 struct Segment {
@@ -211,7 +218,6 @@ void DrawSphereXY(const Sphere& sphere, const Matrix4x4& vp, const Matrix4x4& vi
 }
 
 
-
 float Clamp(float value, float min, float max) {
 	if (value < min) return min;
 	if (value > max) return max;
@@ -257,6 +263,39 @@ bool IsAABBvsSphere(const AABB* box, const Sphere* sphere) {
 	return distanceSq <= (sphere->radius * sphere->radius);
 }
 
+bool LineIntersectsAABB(const Segment& segment, const AABB& box) {
+	float tmin = 0.0f;
+	float tmax = 1.0f;
+	Vector3 d = Subtract(segment.end, segment.start);
+
+	for (int i = 0; i < 3; i++) {
+		float p = (i == 0) ? d.x : (i == 1) ? d.y : d.z;
+		float start = (i == 0) ? segment.start.x : (i == 1) ? segment.start.y : segment.start.z;
+		float minB = (i == 0) ? box.min.x : (i == 1) ? box.min.y : box.min.z;
+		float maxB = (i == 0) ? box.max.x : (i == 1) ? box.max.y : box.max.z;
+
+		if (p == 0.0f) {
+			// 線分がこの軸に対して平行で、かつボックス外  
+			if (start < minB || start > maxB)
+				return false;
+		}
+		else {
+			float ood = 1.0f / p;
+			float t1 = (minB - start) * ood;
+			float t2 = (maxB - start) * ood;
+			if (t1 > t2) std::swap(t1, t2);
+
+			tmin = std::fmax(tmin, t1);
+			tmax = std::fmin(tmax, t2);
+
+			if (tmin > tmax)
+				return false; // 交差しない  
+		}
+	}
+
+	return true;
+}
+
 // Windowsアプリでのエントリーポイント(main関数
 int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 
@@ -279,9 +318,13 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 	AABB box2 = { {0.0f, 0.5f, 0.0f}, {1.0f, 1.5f, 1.0f} };
 	Sphere sphere = { {0.5f, 0.5f, 0.5f}, 0.3f };
 
+	AABB box = { .min{-0.5f,0.0f, -0.5f,}, .max{0.5f, 0.5f,0.5f} };
+    
 
-
-
+    // 修正された呼び出し  
+    bool hit = LineIntersectsAABB(segment, box);
+	Vector2 lineStart = { -1.0f, 2.0f };
+	Vector2 lineEnd = { 6.0f, 2.0f };
 
 	// ウィンドウの×ボタンが押されるまでループ
 	while (Novice::ProcessMessage() == 0) {
@@ -305,6 +348,13 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 		Matrix4x4 viewProjectionMatrix = Multiply(viewMatrix, projectionMatrix);
 		Matrix4x4 viewportMatrix = MakeViewportMatrix(0, 0, 1280, 720, 0.0f, 1.0f);
 
+		if (LineIntersectsAABB(segment, box)) {
+			hit = true;
+		}
+		else {
+			hit = false;
+		}
+
 		ImGui::Begin("Window");
 		ImGui::DragFloat3("CameraTranslate", &cameraTranslate.x, 0.01f);
 		ImGui::DragFloat3("CameraRotate", &cameraRotate.x, 0.01f);
@@ -315,10 +365,10 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 		// ImGui上で表示
 
 		//AABB
-		ImGui::DragFloat3("Box1 Min", &box1.min.x, 0.01f);
-		ImGui::DragFloat3("Box1 Max", &box1.max.x, 0.01f);
-		ImGui::DragFloat3("Box2 Min", &box2.min.x, 0.01f);
-		ImGui::DragFloat3("Box2 Max", &box2.max.x, 0.01f);
+		ImGui::DragFloat3("Box Min", &box.min.x, 0.01f);
+		ImGui::DragFloat3("Box Max", &box.max.x, 0.01f);
+		ImGui::DragFloat3("Box Min", &box2.min.x, 0.01f);
+		ImGui::DragFloat3("Box Max", &box2.max.x, 0.01f);
 
 		//Sphere
 		ImGui::DragFloat3("Sphere Center", &sphere.center.x, 0.01f);
@@ -337,13 +387,24 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 		///
 
 		// 衝突判定
-		bool hit = IsAABBvsSphere(&box1, &sphere);
+		LineIntersectsAABB(segment, box);
 
 
 		DrawGrid(viewProjectionMatrix, viewportMatrix);
+
 		// 描画
-		DrawAABB(box1, viewProjectionMatrix, viewportMatrix, hit ? 0xFF0000FF : 0x00FF00FF);
-		DrawSphereXY(sphere, viewProjectionMatrix, viewportMatrix, hit ? 0xFF0000FF : 0x0000FFFF);
+		Vector3 start = Transform(Transform(segment.start, viewProjectionMatrix), viewportMatrix);
+		Vector3 end = Transform(Transform(Add(segment.start, segment.end), viewProjectionMatrix), viewportMatrix);
+
+		// 衝突していたら色を赤に、していなければ白に
+		//uint32_t segmentColor = hit ? 0xFF0000FF : 0xFFFFFFFF;
+
+		Novice::DrawLine((int)start.x, (int)start.y, (int)end.x, (int)end.y,0xFFFFFFFF);
+
+
+		DrawAABB(box, viewProjectionMatrix, viewportMatrix, hit ? 0xFF0000FF : 0x00FF00FF);
+		//DrawSphereXY(sphere, viewProjectionMatrix, viewportMatrix, hit ? 0xFF0000FF : 0x0000FFFF);
+
 
 
 
