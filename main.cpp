@@ -296,6 +296,8 @@ bool LineIntersectsAABB(const Segment& segment, const AABB& box) {
 	return true;
 }
 
+
+
 // Windowsアプリでのエントリーポイント(main関数
 int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 
