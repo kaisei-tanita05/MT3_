@@ -26,20 +26,7 @@ struct Vector2 {
 	float y;
 };
 
-struct Segment {
-	Vector3 start;
-	Vector3 end;
-};
 
-struct AABB {
-	Vector3 min;
-	Vector3 max;
-};
-
-struct Sphere {
-	Vector3 center;
-	float radius;
-};
 
 float Dot(const Vector3& a, const Vector3& b) { return a.x * b.x + a.y * b.y + a.z * b.z; }
 
@@ -169,54 +156,8 @@ void DrawGrid(const Matrix4x4& viewProjectionMatrix, const Matrix4x4& viewportMa
 	}
 }
 
+
 // AABBの描画（線で囲む）
-void DrawAABB(AABB& box, const Matrix4x4& vpMatrix, const Matrix4x4& viewport, uint32_t color) {
-	Vector3 corners[8] = {
-		{box.min.x, box.min.y, box.min.z},
-		{box.max.x, box.min.y, box.min.z},
-		{box.min.x, box.max.y, box.min.z},
-		{box.max.x, box.max.y, box.min.z},
-		{box.min.x, box.min.y, box.max.z},
-		{box.max.x, box.min.y, box.max.z},
-		{box.min.x, box.max.y, box.max.z},
-		{box.max.x, box.max.y, box.max.z},
-	};
-
-	for (int i = 0; i < 8; ++i) {
-		corners[i] = Transform(corners[i], vpMatrix);
-		corners[i] = Transform(corners[i], viewport);
-	}
-
-	// 辺を線で描画
-	int edges[12][2] = {
-		{0,1},{1,3},{3,2},{2,0},
-		{4,5},{5,7},{7,6},{6,4},
-		{0,4},{1,5},{2,6},{3,7}
-	};
-
-	for (int i = 0; i < 12; ++i) {
-		Novice::DrawLine((int)corners[edges[i][0]].x, (int)corners[edges[i][0]].y,
-			(int)corners[edges[i][1]].x, (int)corners[edges[i][1]].y, color);
-	}
-}
-
-void DrawSphereXY(const Sphere& sphere, const Matrix4x4& vp, const Matrix4x4& viewport, uint32_t color) {
-	const int kSegments = 36;
-	const float kPI = 3.141592f;
-	for (int i = 0; i < kSegments; ++i) {
-		float theta1 = (float)i / kSegments * 2.0f * kPI;
-		float theta2 = (float)(i + 1) / kSegments * 2.0f * kPI;
-		Vector3 p1 = { sphere.center.x + cosf(theta1) * sphere.radius, sphere.center.y + sinf(theta1) * sphere.radius, sphere.center.z };
-		Vector3 p2 = { sphere.center.x + cosf(theta2) * sphere.radius, sphere.center.y + sinf(theta2) * sphere.radius, sphere.center.z };
-
-		p1 = Transform(p1, vp);
-		p1 = Transform(p1, viewport);
-		p2 = Transform(p2, vp);
-		p2 = Transform(p2, viewport);
-		Novice::DrawLine((int)p1.x, (int)p1.y, (int)p2.x, (int)p2.y, color);
-	}
-}
-
 
 float Clamp(float value, float min, float max) {
 	if (value < min) return min;
@@ -251,52 +192,63 @@ Vector3 Subtract(const Vector3& a, const Vector3& b) {
 	return { a.x - b.x, a.y - b.y, a.z - b.z };
 }
 
-bool IsAABBvsSphere(const AABB* box, const Sphere* sphere) {
-	Vector3 closest{};
-	closest.x = Clamp(sphere->center.x, box->min.x, box->max.x);
-	closest.y = Clamp(sphere->center.y, box->min.y, box->max.y);
-	closest.z = Clamp(sphere->center.z, box->min.z, box->max.z);
 
-	Vector3 diff = Subtract(sphere->center, closest);
-	float distanceSq = Dot(diff, diff);
-
-	return distanceSq <= (sphere->radius * sphere->radius);
+Vector3 Lerp(const Vector3& a, const Vector3& b, float t) {
+	return {
+		a.x + (b.x - a.x) * t,
+		a.y + (b.y - a.y) * t,
+		a.z + (b.z - a.z) * t,
+	};
 }
 
-bool LineIntersectsAABB(const Segment& segment, const AABB& box) {
-	float tmin = 0.0f;
-	float tmax = 1.0f;
-	Vector3 d = Subtract(segment.end, segment.start);
+Vector3 QuadraticBezier(const Vector3& p0, const Vector3& p1, const Vector3& p2, float t) {
+	Vector3 a = Lerp(p0, p1, t);
+	Vector3 b = Lerp(p1, p2, t);
+	return Lerp(a, b, t);
+}
 
-	for (int i = 0; i < 3; i++) {
-		float p = (i == 0) ? d.x : (i == 1) ? d.y : d.z;
-		float start = (i == 0) ? segment.start.x : (i == 1) ? segment.start.y : segment.start.z;
-		float minB = (i == 0) ? box.min.x : (i == 1) ? box.min.y : box.min.z;
-		float maxB = (i == 0) ? box.max.x : (i == 1) ? box.max.y : box.max.z;
 
-		if (p == 0.0f) {
-			// 線分がこの軸に対して平行で、かつボックス外  
-			if (start < minB || start > maxB)
-				return false;
-		}
-		else {
-			float ood = 1.0f / p;
-			float t1 = (minB - start) * ood;
-			float t2 = (maxB - start) * ood;
-			if (t1 > t2) std::swap(t1, t2);
+void bezierDraw(const Vector3& controlPoint0, const Vector3& controlPoint1, const Vector3& controlPoint2, const Matrix4x4& viewProjectionMatrix, const Matrix4x4& viewportMatrix, uint32_t color) {
 
-			tmin = std::fmax(tmin, t1);
-			tmax = std::fmin(tmax, t2);
+	const int kBezierSteps = 100;
+	for (int i = 0; i < kBezierSteps; ++i) {
+		float t0 = static_cast<float>(i) / kBezierSteps;
+		float t1 = static_cast<float>(i + 1) / kBezierSteps;
+		//float t2 = static_cast<float>(i + 2) / kBezierSteps;
 
-			if (tmin > tmax)
-				return false; // 交差しない  
-		}
+		Vector3 point0 = QuadraticBezier(controlPoint0, controlPoint1, controlPoint2, t0);
+		Vector3 point1 = QuadraticBezier(controlPoint0, controlPoint1, controlPoint2, t1);
+		//Vector3 point2 = QuadraticBezier(controlPoint0, controlPoint1, controlPoint2, t2);
+
+
+		// ワールド→ビュー→射影変換
+		point0 = Transform(point0, viewProjectionMatrix);
+		point1 = Transform(point1, viewProjectionMatrix);
+		//point2 = Transform(point2, viewProjectionMatrix);
+
+		// ビューポート変換
+		point0 = Transform(point0, viewportMatrix);
+		point1 = Transform(point1, viewportMatrix);
+		//point2 = Transform(point2, viewportMatrix);
+
+		Novice::DrawLine(
+			static_cast<int>(point0.x),
+			static_cast<int>(point0.y),
+			static_cast<int>(point1.x),
+			static_cast<int>(point1.y),
+			color
+		);
+		// 始点と終点をビューポート変換して黒円描画
+		Vector3 start = Transform(Transform(controlPoint0, viewProjectionMatrix), viewportMatrix);
+		Vector3 control = Transform(Transform(controlPoint1, viewProjectionMatrix), viewportMatrix); // 追加
+		Vector3 end = Transform(Transform(controlPoint2, viewProjectionMatrix), viewportMatrix);
+		int radius = 5;
+		Novice::DrawEllipse(int(start.x), int(start.y), radius, radius, 0.0f, 0x000000FF, kFillModeSolid);
+		Novice::DrawEllipse(int(control.x), int(control.y), radius, radius, 0.0f, 0x000000FF, kFillModeSolid); // 追加
+		Novice::DrawEllipse(int(end.x), int(end.y), radius, radius, 0.0f, 0x000000FF, kFillModeSolid);
 	}
 
-	return true;
 }
-
-
 
 // Windowsアプリでのエントリーポイント(main関数
 int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
@@ -311,22 +263,15 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 	Vector3 cameraTranslate{ 0.0f, 1.9f, -6.49f };
 	Vector3 cameraRotate{ 0.26f, 0.0f, 0.0f };
 
-	Segment segment = {
-	{0.0f, 0.0f, 0.0f},  // 始点
-	{0.0f, 1.0f, 0.0f}   // 終点
-	};
-
-	AABB box1 = { {-0.5f, 0.0f, -0.5f}, {0.5f, 1.0f, 0.5f} };
-	AABB box2 = { {0.0f, 0.5f, 0.0f}, {1.0f, 1.5f, 1.0f} };
-	Sphere sphere = { {0.5f, 0.5f, 0.5f}, 0.3f };
-
-	AABB box = { .min{-0.5f,0.0f, -0.5f,}, .max{0.5f, 0.5f,0.5f} };
-    
+	
+	
 
     // 修正された呼び出し  
-    bool hit = LineIntersectsAABB(segment, box);
-	Vector2 lineStart = { -1.0f, 2.0f };
-	Vector2 lineEnd = { 6.0f, 2.0f };
+	
+	Vector3 p0 = { -1.0f, 0.0f, 0.0f };
+	Vector3 p1 = { 0.0f, 2.0f, 0.0f };
+	Vector3 p2 = { 1.0f, 0.0f, 0.0f };
+
 
 	// ウィンドウの×ボタンが押されるまでループ
 	while (Novice::ProcessMessage() == 0) {
@@ -350,31 +295,19 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 		Matrix4x4 viewProjectionMatrix = Multiply(viewMatrix, projectionMatrix);
 		Matrix4x4 viewportMatrix = MakeViewportMatrix(0, 0, 1280, 720, 0.0f, 1.0f);
 
-		if (LineIntersectsAABB(segment, box)) {
-			hit = true;
-		}
-		else {
-			hit = false;
-		}
+		
+
+
+
 
 		ImGui::Begin("Window");
 		ImGui::DragFloat3("CameraTranslate", &cameraTranslate.x, 0.01f);
 		ImGui::DragFloat3("CameraRotate", &cameraRotate.x, 0.01f);
 
-		ImGui::DragFloat3("Segment Start", &segment.start.x, 0.01f);
-		ImGui::DragFloat3("Segment End", &segment.end.x, 0.01f);
 
-		// ImGui上で表示
-
-		//AABB
-		ImGui::DragFloat3("Box Min", &box.min.x, 0.01f);
-		ImGui::DragFloat3("Box Max", &box.max.x, 0.01f);
-		ImGui::DragFloat3("Box Min", &box2.min.x, 0.01f);
-		ImGui::DragFloat3("Box Max", &box2.max.x, 0.01f);
-
-		//Sphere
-		ImGui::DragFloat3("Sphere Center", &sphere.center.x, 0.01f);
-		ImGui::DragFloat("Sphere Radius", &sphere.radius, 0.01f, 0.01f, 10.0f);
+		ImGui::DragFloat3("P0", &p0.x, 0.01f);
+		ImGui::DragFloat3("P1", &p1.x, 0.01f);
+		ImGui::DragFloat3("P2", &p2.x, 0.01f);
 
 		ImGui::End();
 
@@ -388,29 +321,12 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 		/// ↓描画処理ここから
 		///
 
-		// 衝突判定
-		LineIntersectsAABB(segment, box);
+		
 
 
 		DrawGrid(viewProjectionMatrix, viewportMatrix);
 
-		// 描画
-		Vector3 start = Transform(Transform(segment.start, viewProjectionMatrix), viewportMatrix);
-		Vector3 end = Transform(Transform(Add(segment.start, segment.end), viewProjectionMatrix), viewportMatrix);
-
-		// 衝突していたら色を赤に、していなければ白に
-		//uint32_t segmentColor = hit ? 0xFF0000FF : 0xFFFFFFFF;
-
-		Novice::DrawLine((int)start.x, (int)start.y, (int)end.x, (int)end.y,0xFFFFFFFF);
-
-
-		DrawAABB(box, viewProjectionMatrix, viewportMatrix, hit ? 0xFF0000FF : 0x00FF00FF);
-		//DrawSphereXY(sphere, viewProjectionMatrix, viewportMatrix, hit ? 0xFF0000FF : 0x0000FFFF);
-
-
-
-
-
+		bezierDraw(p0, p1, p2, viewProjectionMatrix, viewportMatrix, BLUE);
 
 
 		///
