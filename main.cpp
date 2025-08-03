@@ -26,7 +26,16 @@ struct Vector2 {
 	float y;
 };
 
+struct Joint {
+	Vector3 localPosition;
+	Vector3 localRotation; // XYZ Euler角
+	float length;
 
+	Matrix4x4 localMatrix;
+	Matrix4x4 worldMatrix;
+
+	Joint* parent;
+};
 
 float Dot(const Vector3& a, const Vector3& b) { return a.x * b.x + a.y * b.y + a.z * b.z; }
 
@@ -128,6 +137,53 @@ Matrix4x4 MakeViewportMatrix(float left, float top, float width, float height, f
 	result.m[3][1] = top + height / 2.0f;
 	result.m[3][2] = minDepth;
 	return result;
+}
+
+Matrix4x4 MakeScaleMatrix(const Vector3& scale) {
+	Matrix4x4 result = MakeIdentity();
+	result.m[0][0] = scale.x;
+	result.m[1][1] = scale.y;
+	result.m[2][2] = scale.z;
+	return result;
+}
+
+
+Matrix4x4 MakeRotateXYZ(const Vector3& rot) {
+	Matrix4x4 rx = MakeRotateX(rot.x);
+	Matrix4x4 ry = MakeRotateY(rot.y);
+	Matrix4x4 rz = MakeRotateZ(rot.z);
+	return Multiply(rz, Multiply(ry, rx)); // Z→Y→Xの順に回転
+}
+
+Matrix4x4 MakeLocalMatrix(const Joint& joint) {
+	Matrix4x4 t = MakeTranslateMatrix({ 0, joint.length, 0 });
+	Matrix4x4 r = MakeRotateXYZ(joint.localRotation);
+	Matrix4x4 m = MakeTranslateMatrix(joint.localPosition);
+	return Multiply(m, Multiply(r, t));
+}
+
+void UpdateWorldMatrix(Joint* joint) {
+	if (joint->parent) {
+		joint->worldMatrix = Multiply(joint->localMatrix, joint->parent->worldMatrix);
+	}
+	else {
+		joint->worldMatrix = joint->localMatrix;
+	}
+}
+
+void DrawJointChain(const Joint* joints, int jointCount, const Matrix4x4& viewProjectionMatrix, const Matrix4x4& viewportMatrix, uint32_t color) {
+	for (int i = 1; i < jointCount; ++i) {
+		Vector3 posParent = { joints[i - 1].worldMatrix.m[3][0], joints[i - 1].worldMatrix.m[3][1], joints[i - 1].worldMatrix.m[3][2] };
+		Vector3 posChild = { joints[i].worldMatrix.m[3][0], joints[i].worldMatrix.m[3][1], joints[i].worldMatrix.m[3][2] };
+
+		posParent = Transform(posParent, viewProjectionMatrix);
+		posParent = Transform(posParent, viewportMatrix);
+
+		posChild = Transform(posChild, viewProjectionMatrix);
+		posChild = Transform(posChild, viewportMatrix);
+
+		Novice::DrawLine(int(posParent.x), int(posParent.y), int(posChild.x), int(posChild.y), color);
+	}
 }
 
 void DrawGrid(const Matrix4x4& viewProjectionMatrix, const Matrix4x4& viewportMatrix) {
@@ -250,6 +306,26 @@ void bezierDraw(const Vector3& controlPoint0, const Vector3& controlPoint1, cons
 
 }
 
+void DrawJointSpheres(const Joint* joints, int jointCount, const Matrix4x4& viewProjectionMatrix, const Matrix4x4& viewportMatrix, uint32_t color) {
+	for (int i = 0; i < jointCount; ++i) {
+		Vector3 worldPos{
+			joints[i].worldMatrix.m[3][0],
+			joints[i].worldMatrix.m[3][1],
+			joints[i].worldMatrix.m[3][2]
+		};
+
+		// ビュー→射影→ビューポート変換
+		worldPos = Transform(worldPos, viewProjectionMatrix);
+		worldPos = Transform(worldPos, viewportMatrix);
+
+		Novice::DrawEllipse(
+			static_cast<int>(worldPos.x),
+			static_cast<int>(worldPos.y),
+			8, 8, 0.0f, color, kFillModeSolid
+		);
+	}
+}
+
 // Windowsアプリでのエントリーポイント(main関数
 int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 
@@ -271,6 +347,27 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 	Vector3 p0 = { -1.0f, 0.0f, 0.0f };
 	Vector3 p1 = { 0.0f, 2.0f, 0.0f };
 	Vector3 p2 = { 1.0f, 0.0f, 0.0f };
+
+
+	Joint joints[3];
+
+	// 肩（Root）
+	joints[0].localPosition = { 0.0f, 0.0f, 0.0f };
+	joints[0].localRotation = { 0.0f, 0.0f, 0.0f };
+	joints[0].length = 0.0f;
+	joints[0].parent = nullptr;
+
+	// 肘
+	joints[1].localPosition = { 0, 0, 0 };
+	joints[1].localRotation = { 0, 0, 0 };
+	joints[1].length = 1.5f;
+	joints[1].parent = &joints[0];
+
+	// 手首
+	joints[2].localPosition = { 0, 0, 0 };
+	joints[2].localRotation = { 0, 0, 0 };
+	joints[2].length = 1.0f;
+	joints[2].parent = &joints[1];
 
 
 
@@ -306,9 +403,20 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 		ImGui::DragFloat3("CameraRotate", &cameraRotate.x, 0.01f);
 
 
-		ImGui::DragFloat3("P0", &p0.x, 0.01f);
-		ImGui::DragFloat3("P1", &p1.x, 0.01f);
-		ImGui::DragFloat3("P2", &p2.x, 0.01f);
+		// ImGuiで回転編集
+		ImGui::DragFloat3("Shoulder Rotation", &joints[0].localRotation.x, 0.05f);
+		ImGui::DragFloat3("Elbow Rotation", &joints[1].localRotation.x, 0.05f);
+		ImGui::DragFloat3("Wrist Rotation", &joints[2].localRotation.x, 0.05f);
+
+		// ローカル行列の更新
+		for (int i = 0; i < 3; ++i) {
+			joints[i].localMatrix = MakeLocalMatrix(joints[i]);
+		}
+
+		// ワールド行列の更新
+		for (int i = 0; i < 3; ++i) {
+			UpdateWorldMatrix(&joints[i]);
+		}
 
 		ImGui::End();
 
@@ -327,8 +435,14 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 
 		DrawGrid(viewProjectionMatrix, viewportMatrix);
 
-		bezierDraw(p0, p1, p2, viewProjectionMatrix, viewportMatrix, BLUE);
+		// 描画
+		DrawJointChain(joints, 3, viewProjectionMatrix, viewportMatrix, WHITE);
 
+		// 関節の線（チェーン）を描画
+		DrawJointChain(joints, 3, viewProjectionMatrix, viewportMatrix, 0xFF0000FF);
+
+		// 各関節に球体（円）を描画
+		DrawJointSpheres(joints, 3, viewProjectionMatrix, viewportMatrix, 0x000000FF); // 黒い球
 
 		///
 		/// ↑描画処理ここまで
