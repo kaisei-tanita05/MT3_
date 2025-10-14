@@ -18,6 +18,8 @@ struct Matrix4x4
 	float m[4][4];
 };
 
+
+
 //x軸回転行列
 Matrix4x4 MakeRotateXMatrix(float radian)
 {
@@ -212,6 +214,59 @@ Matrix4x4 Multiply(const Matrix4x4& m1, const Matrix4x4& m2)
 
 }
 
+// 正規化
+Vector3 Normalize(const Vector3& v)
+{
+	float length = std::sqrt(v.x * v.x + v.y * v.y + v.z * v.z);
+	Vector3 result = { v.x / length, v.y / length, v.z / length };
+	return result;
+}
+
+// 任意軸回転行列
+Matrix4x4 MakeRotateAxisAngleMatrix(const Vector3& axis, float radian)
+{
+	Vector3 n = Normalize(axis);
+
+	float cosTheta = std::cos(radian);
+	float sinTheta = std::sin(radian);
+	float oneMinusCos = 1.0f - cosTheta;
+
+	Matrix4x4 result{};
+
+	result.m[0][0] = n.x * n.x * oneMinusCos + cosTheta;
+	result.m[0][1] = n.x * n.y * oneMinusCos + n.z * sinTheta;
+	result.m[0][2] = n.x * n.z * oneMinusCos - n.y * sinTheta;
+	result.m[0][3] = 0.0f;
+
+	result.m[1][0] = n.y * n.x * oneMinusCos - n.z * sinTheta;
+	result.m[1][1] = n.y * n.y * oneMinusCos + cosTheta;
+	result.m[1][2] = n.y * n.z * oneMinusCos + n.x * sinTheta;
+	result.m[1][3] = 0.0f;
+
+	result.m[2][0] = n.z * n.x * oneMinusCos + n.y * sinTheta;
+	result.m[2][1] = n.z * n.y * oneMinusCos - n.x * sinTheta;
+	result.m[2][2] = n.z * n.z * oneMinusCos + cosTheta;
+	result.m[2][3] = 0.0f;
+
+	result.m[3][0] = 0.0f;
+	result.m[3][1] = 0.0f;
+	result.m[3][2] = 0.0f;
+	result.m[3][3] = 1.0f;
+
+	return result;
+}
+
+
+static const int kRowHeight = 20;
+static const int kColumnWidth = 60;
+
+void MatrixScreenPrintf(int x, int y, Matrix4x4 matrix) {
+	for (int row = 0; row < 4; ++row) {
+		for (int column = 0; column < 4; ++column) {
+			Novice::ScreenPrintf(x + column * kColumnWidth, y + row * kRowHeight, "%6.03f", matrix.m[row][column]);
+		}
+	}
+}
 
 Vector3 operator+(const Vector3& v1, const Vector3& v2) { return Add(v1, v2); }
 Vector3 operator-(const Vector3& v1, const Vector3& v2) { return Subtract(v1, v2); }
@@ -229,27 +284,25 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 	// ライブラリの初期化
 	Novice::Initialize(kWindowTitle, 1280, 720);
 
-	Vector3 a{ 0.2f,1.0f,0.0f };
-	Vector3 b{ 2.4f,3.1f,1.2f };
-	Vector3 c = a + b;
-	Vector3 d = a - b;
-	Vector3 e = a * 2.4f;
-	Vector3 rotate{ 0.4f,1.43f,-0.8f };
-	Matrix4x4 rotateXMatrix = MakeRotateXMatrix(rotate.x);
-	Matrix4x4 rotateYMatrix = MakeRotateYMatrix(rotate.y);
-	Matrix4x4 rotateZMatrix = MakeRotateZMatrix(rotate.z);
-	Matrix4x4 rotateMatrix = rotateXMatrix * rotateYMatrix * rotateZMatrix;
 
+
+	// 任意軸回転
+	Vector3 axis{ 1.0f, 1.0f, 1.0f }; // 回転軸（例: 斜めの軸）
+	float angle = 0.44f; // 回転角（ラジアン）
+	Matrix4x4 rotateAxisMatrix = MakeRotateAxisAngleMatrix(axis, angle);
 
 
 	// キー入力結果を受け取る箱
 	char keys[256] = { 0 };
 	char preKeys[256] = { 0 };
 
-	// ウィンドウの×ボタンが押されるまでループ
+	
+
+// ウィンドウの×ボタンが押されるまでループ
 	while (Novice::ProcessMessage() == 0) {
 		// フレームの開始
 		Novice::BeginFrame();
+
 
 		// キー入力を受け取る
 		memcpy(preKeys, keys, 256);
@@ -259,19 +312,8 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 		/// ↓更新処理ここから
 		///
 
-		ImGui::Begin("Window");
-		ImGui::Text("c:%f,%f,%f", c.x, c.y, c.z);
-		ImGui::Text("d:%f,%f,%f", d.x, d.y, d.z);
-		ImGui::Text("e:%f,%f,%f", e.x, e.y, e.z);
-		ImGui::Text(
-			"matrix:\n%f,%f,%f,%f\n%f,%f,%f,%f\n%f,%f,%f,%f\n%f,%f,%f,%f\n",
-			rotateMatrix.m[0][0], rotateMatrix.m[0][1], rotateMatrix.m[0][2],
-			rotateMatrix.m[0][3], rotateMatrix.m[1][0], rotateMatrix.m[1][1],
-			rotateMatrix.m[1][2], rotateMatrix.m[1][3], rotateMatrix.m[2][0],
-			rotateMatrix.m[2][1], rotateMatrix.m[2][2], rotateMatrix.m[2][3],
-			rotateMatrix.m[3][0], rotateMatrix.m[3][1], rotateMatrix.m[3][2],
-			rotateMatrix.m[3][3]);
-		ImGui::End();
+
+
 
 
 		///
@@ -282,6 +324,9 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 		/// ↓描画処理ここから
 		///
 
+		Novice::ScreenPrintf(0, 0, "rotateMatrix");
+
+		MatrixScreenPrintf(0, 20, rotateAxisMatrix);
 
 
 		///
