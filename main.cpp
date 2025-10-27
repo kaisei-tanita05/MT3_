@@ -1,7 +1,7 @@
 #include <Novice.h>
 #include <cmath>
 #include <imgui.h>
-
+#include <numbers>
 
 const char kWindowTitle[] = "LE2C_20_タニタ_カイセイ";
 
@@ -257,6 +257,50 @@ Matrix4x4 MakeRotateAxisAngleMatrix(const Vector3& axis, float radian)
 }
 
 
+// 内積を求める
+float Dot(const Vector3& v1, const Vector3& v2) {
+	return v1.x * v2.x + v1.y * v2.y + v1.z * v2.z;
+}
+
+// 外積を求める
+Vector3 Cross(const Vector3& v1, const Vector3& v2) {
+	return {
+		v1.y * v2.z - v1.z * v2.y,
+		v1.z * v2.x - v1.x * v2.z,
+		v1.x * v2.y - v1.y * v2.x
+	};
+}
+
+Matrix4x4 DirectionToDirection(const Vector3& from, const Vector3& to) {
+	Vector3 f = Normalize(from);
+	Vector3 t = Normalize(to);
+
+	float dot = Dot(f, t);
+
+	// from と to がほぼ同じ場合（回転不要）
+	if (dot > 0.9999f) {
+		Matrix4x4 identity{};
+		for (int i = 0; i < 4; i++) identity.m[i][i] = 1.0f;
+		return identity;
+	}
+
+	// 逆向きの場合（180度回転）
+	if (dot < -0.9999f) {
+		// どの軸でもいいが、from に垂直な軸を作る
+		Vector3 ortho = { 1.0f, 0.0f, 0.0f };
+		if (fabs(f.x) > 0.9f) ortho = { 0.0f, 1.0f, 0.0f };
+
+		Vector3 axis = Normalize(Cross(f, ortho));
+		return MakeRotateAxisAngleMatrix(axis, std::numbers::pi_v<float>);
+	}
+
+	// 通常ケース
+	Vector3 axis = Normalize(Cross(f, t));
+	float angle = std::acos(dot);
+
+	return MakeRotateAxisAngleMatrix(axis, angle);
+}
+
 static const int kRowHeight = 20;
 static const int kColumnWidth = 60;
 
@@ -286,11 +330,23 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 
 
 
-	// 任意軸回転
-	Vector3 axis{ 1.0f, 1.0f, 1.0f }; // 回転軸（例: 斜めの軸）
-	float angle = 0.44f; // 回転角（ラジアン）
-	Matrix4x4 rotateAxisMatrix = MakeRotateAxisAngleMatrix(axis, angle);
+	// テスト: from→to への回転行列
+	Vector3 from{ 1.0f, 0.0f, 0.0f };  // X方向
+	Vector3 to{ 0.0f, 1.0f, 0.0f };    // Y方向
 
+	Vector3 from0 = Normalize(Vector3{ 1.0f,0.7f,0.5f });
+
+	Vector3 to0 = Normalize(Vector3{ -1.0f,-0.7f,-0.5f });
+
+	Vector3 from1 = Normalize(Vector3{ -0.6f,0.9f,0.2f });
+
+	Vector3 to1 = Normalize(Vector3{ 0.4f,0.7f,-0.5f });
+
+	Matrix4x4 rotateMatrix0 = DirectionToDirection(Normalize(Vector3{ 1.0f,0.0f,0.0f }), Normalize(Vector3{ -1.0f,0.0f,0.0f }));
+
+	Matrix4x4 rotateMatrix1 = DirectionToDirection(from0, to0);
+
+	Matrix4x4 rotateMatrix2 = DirectionToDirection(from1, to1);
 
 	// キー入力結果を受け取る箱
 	char keys[256] = { 0 };
@@ -324,9 +380,17 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 		/// ↓描画処理ここから
 		///
 
-		Novice::ScreenPrintf(0, 0, "rotateMatrix");
+		Novice::ScreenPrintf(0, 0, "rotateMatrix0");
 
-		MatrixScreenPrintf(0, 20, rotateAxisMatrix);
+		MatrixScreenPrintf(0, 20, rotateMatrix0);
+
+		Novice::ScreenPrintf(0, 100, "rotateMatrix1");
+
+		MatrixScreenPrintf(0, 120, rotateMatrix1);
+
+		Novice::ScreenPrintf(0, 200, "rotateMatrix2");
+
+		MatrixScreenPrintf(0, 220, rotateMatrix2);
 
 
 		///
