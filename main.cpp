@@ -3,6 +3,7 @@
 #include <imgui.h>
 #include <numbers>
 
+
 const char kWindowTitle[] = "LE2C_20_タニタ_カイセイ";
 
 
