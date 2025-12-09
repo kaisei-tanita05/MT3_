@@ -200,6 +200,55 @@ Matrix4x4 MakeRotateMatrix(const Quaternion& quaternion)
 	return result;
 }
 
+Quaternion Slerp(const Quaternion& q0, const Quaternion& q1, float t)
+{
+	// 内積
+	float dot = q0.x * q1.x + q0.y * q1.y + q0.z * q1.z + q0.w * q1.w;
+
+	Quaternion q1b = q1;
+	if (dot < 0.0f) {
+		dot = -dot;
+		q1b.x = -q1.x;
+		q1b.y = -q1.y;
+		q1b.z = -q1.z;
+		q1b.w = -q1.w;
+	}
+
+	const float threshold = 0.999f;
+	if (dot > threshold) {
+		Quaternion result;
+		result.x = q0.x + t * (q1b.x - q0.x);
+		result.y = q0.y + t * (q1b.y - q0.y);
+		result.z = q0.z + t * (q1b.z - q0.z);
+		result.w = q0.w + t * (q1b.w - q0.w);
+
+		// 正規化
+		float len = sqrtf(result.x * result.x + result.y * result.y +
+			result.z * result.z + result.w * result.w);
+		result.x /= len;
+		result.y /= len;
+		result.z /= len;
+		result.w /= len;
+
+		return result;
+	}
+
+	// 角度を求める
+	float theta = acosf(dot);
+	float sinTheta = sinf(theta);
+
+	float w1 = sinf((1.0f - t) * theta) / sinTheta;
+	float w2 = sinf(t * theta) / sinTheta;
+
+	Quaternion result;
+	result.x = w1 * q0.x + w2 * q1b.x;
+	result.y = w1 * q0.y + w2 * q1b.y;
+	result.z = w1 * q0.z + w2 * q1b.z;
+	result.w = w1 * q0.w + w2 * q1b.w;
+
+	return result;
+}
+
 
 static const int kColumnWidth = 60;
 static const int kRowHeight = 20;
@@ -241,14 +290,14 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 	// ライブラリの初期化
 	Novice::Initialize(kWindowTitle, 1280, 720);
 
-	Quaternion rotation = MakeRotateAxisAngleQuaternion(
-		Normalize(Vector3{ 1.0f,0.4f,-0.2f }), 0.45f);
-	Vector3 pointY = { 2.1f,-0.9f,1.3f, };
-	Matrix4x4 rotateMatrix = MakeRotateMatrix(rotation);
-	Vector3 rotateByQuaternion = RotateVector(pointY, rotation);
-	Vector3 rotateByMatrix = Transform(pointY, rotateMatrix);
+	Quaternion rotation = MakeRotateAxisAngleQuaternion({ 0.71f,0.71f,0.0f }, 0.3f);
+	Quaternion rotation1 = MakeRotateAxisAngleQuaternion({ 0.71f,0.0f,0.71f }, 3.141592f);
 
-
+	Quaternion interpolate0 = Slerp(rotation, rotation1, 0.0f);
+	Quaternion interpolate1 = Slerp(rotation, rotation1, 0.3f);
+	Quaternion interpolate2 = Slerp(rotation, rotation1, 0.5f);
+	Quaternion interpolate3 = Slerp(rotation, rotation1, 0.7f);
+	Quaternion interpolate4 = Slerp(rotation, rotation1, 1.0f);
 
 	// キー入力結果を受け取る箱
 	char keys[256] = { 0 };
@@ -275,11 +324,11 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 		/// ↓描画処理ここから
 		///
 
-		QuaternionScreenPrintf(0, 0, rotation, " : rotation");
-		MatrixScreenPrintf(0, kRowHeight * 1, rotateMatrix, "rotateMatrix");
-		VectorScreenPrintf(0, kRowHeight * 6, rotateByQuaternion, " : rotateByQuaternion");
-		VectorScreenPrintf(0, kRowHeight * 7, rotateByMatrix, " : rotateByMatrix");
-
+		QuaternionScreenPrintf(0, 0, interpolate0, " : interpolate0, Slerp(q0,q1,0.0f) ");
+		QuaternionScreenPrintf(0, 20, interpolate1, " : interpolate1, Slerp(q0,q1,0.3f) ");
+		QuaternionScreenPrintf(0, 40, interpolate2, " : interpolate2, Slerp(q0,q1,0.5f) ");
+		QuaternionScreenPrintf(0, 60, interpolate3, " : interpolate3, Slerp(q0,q1,0.7f) ");
+		QuaternionScreenPrintf(0, 80, interpolate4, " : interpolate4, Slerp(q0,q1,1.0f) ");
 
 		///
 		/// ↑描画処理ここまで
